@@ -1,0 +1,155 @@
+---
+title: "car_purchase"
+author: "McKay Gerratt"
+date: "July 28, 2020"
+output: html_document
+---
+
+In this notebook I will be conducting an analysis for the Kaggle competition "Don't Get Kicked!" in which we are predicting whether or not a cars puchased at an auction actually function.
+
+#Exploratory Data Analysis
+
+```{r setup}
+
+#Loading Packages
+library(tidyverse)
+library(caret)
+```
+
+```{r}
+#reading in Data
+train.pre <- read.csv("training.csv")
+test.pre <- read.csv("test.csv")
+# head(cbind(test.pre, "IsBadBuy" = NA))
+
+to.clean <- rbind(cbind(train.pre[,-2], "IsBadBuy" = train.pre$IsBadBuy),
+                  cbind(test.pre, "IsBadBuy" = NA))
+```
+
+```{r}
+#converting Purchase Date to Date type
+to.clean$PurchDate <- as.Date(to.clean$PurchDate, format = "%M/%d/%Y")
+```
+```{r}
+#seeing which values are missing
+missing.values <- to.clean %>%
+  gather(key = "key", value = "val") %>%
+  mutate(isna = is.na(val)) %>%
+  group_by(key) %>%
+  mutate(total = n()) %>%
+  group_by(key, total, isna) %>%
+  summarise(num.isna = n()) %>%
+  mutate(pct = num.isna / total * 100)
+
+levels <-
+    (missing.values  %>% filter(isna == T) %>% arrange(desc(pct)))$key
+
+percentage.plot <- missing.values %>%
+      ggplot() +
+        geom_bar(aes(x = reorder(key, desc(pct)), 
+                     y = pct, fill=isna), 
+                 stat = 'identity', alpha=0.8) +
+      scale_x_discrete(limits = levels) +
+      scale_fill_manual(name = "", 
+                        values = c('steelblue', 'tomato3'), labels = c("Present", "Missing")) +
+      coord_flip() +
+      labs(title = "Percentage of missing values", x =
+             'Variable', y = "% of missing values")
+
+percentage.plot
+
+```
+
+```{r}
+# Columns to Remove
+# I don't think trim will be important
+unique(to.clean$Trim)
+# There are 935 levels of SubModel. I don't think it will be very useful, but perhaps can get rid of excess
+# unique(to.clean$SubModel)
+# unique(to.clean$Color)
+# length(to.clean$Color[to.clean$Color == "NULL"])
+```
+
+
+```{r}
+# Breaking back into training and test sets
+train <- to.clean[!is.na(to.clean$IsBadBuy),]
+test <- to.clean[is.na(to.clean$IsBadBuy),]
+# train$IsBadBuy <- as.factor(train$IsBadBuy)
+table(train$IsBadBuy)
+```
+
+```{r eval = FALSE}
+#Exploratory Plots
+#Age
+train %>% select(VehicleAge, IsBadBuy) %>% group_by(VehicleAge) %>% mutate(prop = round(length(VehicleAge)/nrow(train),3)) %>% ungroup() %>% 
+  ggplot(.) + geom_bar(mapping = aes(x = VehicleAge, fill = as.factor(IsBadBuy)), position = "fill") +
+  labs(title = "Distribution of Outcome by Age", y = "Percentage of Lemons", x = "Vehicle Age (Years)", fill = "Outcome") +
+  geom_text(aes(x = VehicleAge, y = 0.5, label = prop, color = prop)) +
+  scale_color_continuous(name = "perc of data", low = "red", high = "white") +
+  scale_fill_manual(labels = c("Working", "Lemon"), values = c("black", "slateblue"))
+```
+```{r eval = FALSE}
+#Make
+#doesn't seem to have a large correlation. The ones that seem to be higher do not have a large number of cars to speak of
+train %>% select(Make, IsBadBuy) %>% group_by(Make) %>% mutate(prop = round(length(Make)/nrow(train),3)) %>% ungroup() %>% 
+  ggplot(.) + geom_bar(mapping = aes(x = Make, fill = as.factor(IsBadBuy)), position = "fill") + #alpha = prop
+  labs(title = "Distribution of Outcome by Make", y = "Percentage of Lemons", x = "Vehicle Age (Years)", fill = "Outcome") +
+  geom_text(aes(x = Make, y = 0.5, label = prop, color = prop), angle = 90) +
+  scale_color_continuous(name = "perc of data", low = "red", high = "white") +
+  scale_fill_manual(labels = c("Working", "Lemon"), values = c("black", "slateblue")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust = 0.5))
+```
+```{r eval = FALSE}
+#Transmission
+#doesn't seem to have a large correlation
+train %>% select(Transmission, IsBadBuy) %>% group_by(Transmission) %>% mutate(prop = round(length(Transmission)/nrow(train),3)) %>% ungroup() %>% 
+  ggplot(.) + geom_bar(mapping = aes(x = Transmission, fill = as.factor(IsBadBuy)), position = "fill") + #alpha = prop
+  labs(title = "Distribution of Outcome by Transmission", y = "Percentage of Lemons", x = "Vehicle Age (Years)", fill = "Outcome") +
+  geom_text(aes(x = Transmission, y = 0.5, label = prop, color = prop), angle = 90) +
+  scale_color_continuous(name = "perc of data", low = "red", high = "white") +
+  scale_fill_manual(labels = c("Working", "Lemon"), values = c("black", "slateblue")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1,vjust = 0.5))
+
+round(table(train[,c("IsBadBuy", "Transmission")])/nrow(train),2)
+```
+
+```{r}
+train %>% select(-starts_with("MMR")) %>% colnames
+```
+
+```{r}
+# perc.plot <- function(x, y = IsBadBuy, df = train) {
+#   attach(df)
+#   train %>% select(((x)), ((y)))
+#     #                %>% group_by(x) %>% mutate(prop = round(length(x)/nrow(df),3)) %>% ungroup() %>% 
+#     # ggplot(.) + geom_bar(mapping = aes(x = x, fill = as.factor(y)), position = "fill") +
+#     # labs(title = "Distribution of Outcome by Age", y = "Percentage of Lemons", x = "Vehicle Age (Years)", fill = "Outcome") +
+#     # geom_text(aes(x = x, y = 0.5, label = prop, color = prop)) +
+#     # scale_color_continuous(name = "perc of data", low = "red", high = "white") +
+#     # scale_fill_manual(labels = c("Working", "Lemon"), values = c("black", "slateblue"))
+# }
+```
+```{r}
+# perc.plot(VehicleAge, IsBadBuy, train) %>% head
+```
+
+
+#Fitting Models
+```{r}
+set.seed(7282020)
+gbm.1 <- train(IsBadBuy ~.-RefId-PurchDate,
+               data = train,
+               method = "gbm",
+               tuneLength = 5
+               )
+
+train(as.factor(Cover_Type)~.-Id,
+                   data = train,
+                   method = "xgbTree",
+                   tuneGrid = tunegrid,
+                   trControl = myControl,
+                   metric = "Accuracy"
+)
+```
+
