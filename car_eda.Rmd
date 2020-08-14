@@ -50,6 +50,7 @@ to.factor.names <- names(sapply(to.clean, is.character))[unname(sapply(to.clean,
 to.clean[,to.factor.names] <- lapply(to.clean[,to.factor.names], as.factor)
 to.clean$BYRNO <- as.factor(to.clean$BYRNO)
 to.clean$VNZIP1 <- as.factor(to.clean$VNZIP1)
+to.clean$IsOnlineSale <- as.factor(to.clean$IsOnlineSale)
 
 
 
@@ -202,8 +203,9 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>%
   ggplot(aes(x = WarrantyCost, fill = as.factor(IsBadBuy))) + geom_histogram() + 
   scale_fill_manual(name = "Outcome", labels = c("Working", "Lemon"), values = col.vec)
 
+to.clean %>% filter(!is.na(IsBadBuy), WarrantyCost > 6000) %>% dplyr::select(IsBadBuy) %>% sum
 # Maybe Important
-
+# Probability seems to increase with Warranty Cost slightly, until the very end (9 out of top 11, which are over 6000, function properly)
 ```
 
 
@@ -211,5 +213,66 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>%
 ## Categorical Variables
 ```{r}
 colnames(to.clean)[unname(sapply(to.clean, is.factor))]
+```
+### Auction
+```{r}
+table(to.clean$Auction)
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Auction, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec)
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Auction, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec)
+to.clean %>% filter(!is.na(IsBadBuy)) %>% mutate(Year = format(PurchDate, "%Y")) %>% group_by(Auction, Year) %>% summarize(Year = unique(Year), num = length(Trim)) %>% ungroup %>% arrange(Year)
+
+# Not very important
+#ADESA may be slightly higher than MANHEIM or OTHER, but only marginally
+#no clear correlation between Auction and Year
+```
+
+### Make
+```{r}
+table(to.clean$Make)
+
+grid.arrange(
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Make, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) +
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(), legend.position = "none") 
+,
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Make, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) +
+  theme(axis.text.x = element_text(angle = 90), legend.position = "bottom")
+
+, ncol = 1, heights = c(0.33, 0.67))
+
+#Maybe Important, but probably not
+#The makes that seem to have a higher probability do not occur often
+```
+
+# Model
+```{r}
+length(unique(to.clean$Model)) #1130 distinct values
+to.clean %>% filter(!is.na(IsBadBuy)) %>% dplyr::select(IsBadBuy, Model) %>% group_by(IsBadBuy, Model) %>% tally %>% ungroup %>% group_by(Model) %>% mutate(total = sum(n)) %>% mutate(prop = n/total) %>% filter(IsBadBuy == 0, prop > .12) %>% arrange(desc(prop), n) %>% filter(total <= 1)
+
+# Probably Not Important
+# Could potentially extract certain numbers, or engine sizes, or 2/4/A Wheel Drive
+```
+
+# Trim
+```{r}
+length(unique(to.clean$Trim)) #138 distinct values
+table(to.clean$Trim, to.clean$IsBadBuy)
+
+# Probably Not Important
+# Could pick a few categories to identify as higher risk, but otherwise probably not useful
+```
+
+#SubModel
+```{r}
+head(unique(to.clean$SubModel)) #935 distinct values
+
+#Probably Not Important
 ```
 
