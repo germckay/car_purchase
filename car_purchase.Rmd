@@ -30,6 +30,7 @@ to.clean <- rbind(cbind(train.pre[,-2], "IsBadBuy" = train.pre$IsBadBuy),
 write.csv(cbind("RefId" = test.pre$RefId, "IsBadBuy" = 0), "zero.csv", row.names = FALSE)
 
 
+
 ```
 
 
@@ -46,6 +47,12 @@ to.clean[,to.numeric.names] <- sapply(to.clean[,to.numeric.names], as.numeric)
 
 to.factor.names <- names(sapply(to.clean, is.character))[unname(sapply(to.clean,is.character))]
 to.clean[,to.factor.names] <- lapply(to.clean[,to.factor.names], as.factor)
+
+# to.clean[,to.numeric.names] <- lapply(to.clean[,to.numeric.names], function(x) {is.na(x) <- mean(x[!is.na(x)])})
+
+for(i in to.numeric.names){
+  to.clean[is.na(to.clean[,i]), i] <- mean(to.clean[,i], na.rm = TRUE)
+}
 ```
 ```{r}
 #seeing which values are missing
@@ -74,6 +81,8 @@ percentage.plot <- missing.values %>%
              'Variable', y = "% of missing values")
 
 percentage.plot
+
+
 ```
 
 ```{r}
@@ -91,6 +100,11 @@ unique(to.clean$Trim)
 to.delete.names <- c("Model", "Trim", "SubModel", "Color","WheelTypeID", "Make")
 to.clean.post <- to.clean[, !names(to.clean) %in% to.delete.names]
 
+too.correlated <- c("MMRAcquisitionAuctionCleanPrice", "MMRAcquisitionRetailAveragePrice",
+                     "MMRAcquisitonRetailCleanPrice", "MMRCurrentAuctionAveragePrice", "MMRCurrentAuctionCleanPrice", 
+                     "MMRCurrentRetailAveragePrice", "MMRCurrentRetailCleanPrice")
+to.clean.post <- to.clean.post[, !names(to.clean.post) %in% too.correlated]
+
 ```
 
 ```{r}
@@ -100,6 +114,12 @@ test <- to.clean.post[is.na(to.clean.post$IsBadBuy),]
 # train$IsBadBuy <- as.factor(train$IsBadBuy)
 table(train$IsBadBuy)
 ```
+```{r}
+# Correlation
+corrgram::corrgram(train)
+```
+
+
 
 ```{r}
 #PurchDate
@@ -116,7 +136,7 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>% ggplot() + geom_line(aes(x = PurchDate
 ```{r}
 #Exploratory Plots
 #Age
-train %>% select(VehicleAge, IsBadBuy) %>% group_by(VehicleAge) %>% mutate(prop = round(length(VehicleAge)/nrow(train),3)) %>% ungroup() %>% 
+train %>% dplyr::select(VehicleAge, IsBadBuy) %>% group_by(VehicleAge) %>% mutate(prop = round(length(VehicleAge)/nrow(train),3)) %>% ungroup() %>% 
   ggplot(.) + geom_bar(mapping = aes(x = VehicleAge, fill = as.factor(IsBadBuy)), position = "fill") +
   labs(title = "Distribution of Outcome by Age", y = "Percentage of Lemons", x = "Vehicle Age (Years)", fill = "Outcome") +
   geom_text(aes(x = VehicleAge, y = 0.5, label = prop, color = prop)) +
@@ -184,27 +204,171 @@ train %>% select(-starts_with("MMR")) %>% colnames
 ```
 
 
+#Jitter Plots
+```{r}
+jitter.plot <- train %>% gather(-IsBadBuy, key = "var", value = "value") %>% 
+  ggplot(mapping = aes(x = value, y = IsBadBuy)) + geom_point() + geom_jitter(width = .4, height = .1) + geom_smooth(se = FALSE) + facet_wrap(~var, scales = "free")
+
+smooth.plot <- train %>% gather(-IsBadBuy, key = "var", value = "value") %>% 
+  ggplot(mapping = aes(x = value, y = IsBadBuy)) + geom_point(aes(color = var)) + geom_smooth(method = "nls", formula = y ~ a * x + b, se = F,
+              method.args = list(start = list(a = 0.1, b = 0.1))) + facet_wrap(~var, scales = "free")
+
+train %>% gather(-IsBadBuy, key = "var", value = "value") %>% filter(var == "IsOnlineSale") %>% 
+  ggplot(mapping = aes(x = value)) + geom_density() #+ facet_wrap(~var, scales = "free")
+
+
+```
+
 
 
 
 #Fitting Models
 ```{r}
+#GBM 1
 set.seed(7282020)
+myControl <- trainControl(method = "cv", number = 3, allowParallel = TRUE)
+myGrid <- expand.grid(n.trees = c(50),#, 100), 
+                      interaction.depth = c(5),#,7), 
+                      shrinkage = c(0.01),#, 0.1), 
+                      n.minobsinnode = c(1))#, 10))
 
-myControl <- trainControl(method = "cv", repeats = 3)
-myGrid <- expand.grid()
-gbm.1 <- train(as.factor(IsBadBuy) ~.-RefId-PurchDate,
+gbm.2 <- train(as.factor(IsBadBuy) ~.-RefId-PurchDate,
                data = train,
                method = "gbm",
-               tuneLength = 5
+               tuneGrid = myGrid,
+               trControl = myControl
+               #na.action = na.pass
                )
 
-train(as.factor(Cover_Type)~.-Id,
-                   data = train,
-                   method = "xgbTree",
-                   tuneGrid = tunegrid,
-                   trControl = myControl,
-                   metric = "Accuracy"
-)
+gbm.2.preds <- predict(gbm.2, test, type = "prob")[,1]
+gbm.2.preds.post <- as.integer(gbm.2.preds  < quantile(gbm.2.preds, .13))
+write.csv(cbind("RefId" = test$RefId, "IsBadBuy" = gbm.2.preds.post), "gbm.2.preds.csv", row.names = FALSE)
+
+# train(as.factor(Cover_Type)~.-Id,
+#                    data = train,
+#                    method = "xgbTree",
+#                    tuneGrid = tunegrid,
+#                    trControl = myControl,
+#                    metric = "Accuracy"
+# )
 ```
+
+```{r}
+#GBM 2
+set.seed(8112020)
+myControl <- trainControl(method = "cv", number = 3, allowParallel = TRUE)
+myGrid <- expand.grid(n.trees = c(50, 100, 150), 
+                      interaction.depth = c(5, 7, 9),
+                      shrinkage = c(0.01, .1),
+                      n.minobsinnode = c(1, 10))
+
+gbm.3 <- train(as.factor(IsBadBuy) ~.-RefId-PurchDate,
+               data = train,
+               method = "gbm",
+               tuneGrid = myGrid,
+               trControl = myControl
+               #na.action = na.pass
+               )
+
+gbm.3.preds <- predict(gbm.3, test, type = "prob")[,1]
+gbm.3.preds.post <- as.integer(gbm.3.preds  < quantile(gbm.3.preds, .13))
+write.csv(cbind("RefId" = test$RefId, "IsBadBuy" = gbm.3.preds.post), "gbm.3.preds.csv", row.names = FALSE)
+```
+
+```{r}
+
+caret.gini <- function (data, lev=NULL, model=NULL) {
+  gini <- function(t, p) {
+    n <- length(t)
+    df <- data.frame(true=t, pred=p)
+    df <- df[order(-df$pred, 1:n, decreasing=T), ]
+    null.losses <- rep(1/n, n)
+    total.losses <- sum(t)
+    accum.losses <- df$true / total.losses
+    gini.sum <- cumsum(accum.losses - null.losses)
+    sum(gini.sum) / n
+  }
+  out <- gini(data$obs, data$pred) / gini(data$obs, data$obs) 
+  names(out) <- "GINI"
+  out
+}
+
+custom_summary <- function(data, lev = NULL, model = NULL) {
+  # out <- Metrics::rmsle(data[, "obs"], data[, "pred"])
+  out <- DescTools::Gini(data$)
+  names(out) <- c("GINI")
+  out
+}
+
+normalizedGini <- function(aa, pp) {
+    Gini <- function(a, p) {
+        if (length(a) !=  length(p)) stop("Actual and Predicted need to be equal lengths!")
+        temp.df <- data.frame(actual = a, pred = p, range=c(1:length(a)))
+        temp.df <- temp.df[order(-temp.df$pred, temp.df$range),]
+        population.delta <- 1 / length(a)
+        total.losses <- sum(a)
+        null.losses <- rep(population.delta, length(a)) # Hopefully is similar to accumulatedPopulationPercentageSum
+        accum.losses <- temp.df$actual / total.losses # Hopefully is similar to accumulatedLossPercentageSum
+        gini.sum <- cumsum(accum.losses - null.losses) # Not sure if this is having the same effect or not
+        sum(gini.sum) / length(a)
+    }
+    Gini(aa,pp) / Gini(aa,aa)
+}
+
+# create the normalized gini summary function to pass into caret
+giniSummary <- function (data, lev = "Yes", model = NULL) {
+    levels(data$obs) <- c('0', '1')
+    out <- normalizedGini(as.numeric(levels(data$obs))[data$obs], data[, lev[2]])  
+    names(out) <- "NormalizedGini"
+    out
+}
+```
+```{r}
+#GBM 3
+set.seed(8132020)
+myControl <- trainControl(method = "cv", number = 3, allowParallel = TRUE)
+myGrid <- expand.grid(n.trees = c(50, 100, 150), 
+                      interaction.depth = c(5, 7, 9),
+                      shrinkage = c(0.01, .1),
+                      n.minobsinnode = c(1, 10))
+
+gbm.4 <- train(as.factor(IsBadBuy) ~.-RefId-PurchDate,
+               data = train,
+               method = "gbm",
+               tuneGrid = myGrid,
+               trControl = myControl,
+               preProcess = c("nzv", "zv", "center", "scale")
+               #na.action = na.pass
+               )
+
+gbm.4.preds <- predict(gbm.4, test, type = "prob")[,1]
+gbm.4.preds.post <- as.integer(gbm.4.preds  < quantile(gbm.4.preds, .13))
+write.csv(cbind("RefId" = test$RefId, "IsBadBuy" = gbm.4.preds.post), "gbm.4.preds.csv", row.names = FALSE)
+```
+
+```{r}
+#GBM 3
+set.seed(8132020)
+myControl <- trainControl(method = "cv", number = 3, allowParallel = TRUE, verboseIter = TRUE, summaryFunction = giniSummary)
+myGrid <- expand.grid(n.trees = c(150), 
+                      interaction.depth = c(9),
+                      shrinkage = c(.1),
+                      n.minobsinnode = c(1))
+
+gbm.5 <- train(as.factor(IsBadBuy) ~.-RefId-PurchDate,
+               data = train,
+               method = "gbm",
+               tuneGrid = myGrid,
+               trControl = myControl,
+               preProcess = c("nzv", "zv", "center", "scale"),
+               metric = "NormalizedGini"
+               #na.action = na.pass
+               )
+
+gbm.5.preds <- predict(gbm.5, test, type = "prob")[,1]
+gbm.5.preds.post <- as.integer(gbm.5.preds  < quantile(gbm.5.preds, .13))
+sum(gbm.5.preds.post)/length(gbm.5.preds.post)
+write.csv(cbind("RefId" = test$RefId, "IsBadBuy" = gbm.5.preds.post), "gbm.5.preds.csv", row.names = FALSE)
+```
+
 
