@@ -15,6 +15,9 @@ knitr::opts_chunk$set(message = FALSE)
 ```{r}
 #Loading Libraries
 library(tidyverse)
+library(lubridate)
+library(grid)
+library(gridExtra)
 ```
 
 ## Reading in Data
@@ -26,9 +29,14 @@ test.pre <- read.csv("test.csv", stringsAsFactors = FALSE)
 to.clean <- rbind(cbind(train.pre[,-2], "IsBadBuy" = train.pre$IsBadBuy),
                   cbind(test.pre, "IsBadBuy" = NA))
 ```
+```{r}
+# Missing Values
+
+```
+
 
 # Cleaning Data
-```{r}
+```{r, warning=FALSE1}
 #converting respective columns into date/numeric/factor
 #date
 to.clean$PurchDate <- as.Date(to.clean$PurchDate, format = "%M/%d/%Y")
@@ -46,6 +54,10 @@ for(i in to.numeric.names){
 }
 
 #factor
+#some clean up
+to.clean$Transmission[to.clean$Transmission == ""] <- "NULL"
+to.clean$Transmission[to.clean$Transmission == "Manual"] <- "MANUAL"
+
 to.factor.names <- names(sapply(to.clean, is.character))[unname(sapply(to.clean,is.character))]
 to.clean[,to.factor.names] <- lapply(to.clean[,to.factor.names], as.factor)
 to.clean$BYRNO <- as.factor(to.clean$BYRNO)
@@ -178,7 +190,7 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>%
   ggplot(aes(x = VehBCost, fill = as.factor(IsBadBuy))) + geom_density(position = "stack") +
   scale_fill_manual(name = "Outcome", labels = c("Working", "Lemon"), values = col.vec)
 
-to.clean %>% filter(!is.na(IsBadBuy), VehBCost > 12500) 
+to.clean %>% filter(!is.na(IsBadBuy), VehBCost > 12500) %>% nrow
 
 # Important
 # It appears that all cars over 20,000 didn't work (about 11 cars)
@@ -251,7 +263,7 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>%
 #The makes that seem to have a higher probability do not occur often
 ```
 
-# Model
+### Model
 ```{r}
 length(unique(to.clean$Model)) #1130 distinct values
 to.clean %>% filter(!is.na(IsBadBuy)) %>% dplyr::select(IsBadBuy, Model) %>% group_by(IsBadBuy, Model) %>% tally %>% ungroup %>% group_by(Model) %>% mutate(total = sum(n)) %>% mutate(prop = n/total) %>% filter(IsBadBuy == 0, prop > .12) %>% arrange(desc(prop), n) %>% filter(total <= 1)
@@ -260,19 +272,223 @@ to.clean %>% filter(!is.na(IsBadBuy)) %>% dplyr::select(IsBadBuy, Model) %>% gro
 # Could potentially extract certain numbers, or engine sizes, or 2/4/A Wheel Drive
 ```
 
-# Trim
+### Trim
 ```{r}
 length(unique(to.clean$Trim)) #138 distinct values
 table(to.clean$Trim, to.clean$IsBadBuy)
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% group_by(Trim) %>% summarize(num = length(Trim), prop = sum(IsBadBuy)/num) %>% ungroup %>% 
+  arrange(desc(num), desc(prop)) %>% head(25) %>% 
+  ggplot(aes(x = Trim, y = prop)) + geom_bar(stat = "identity")
 
 # Probably Not Important
 # Could pick a few categories to identify as higher risk, but otherwise probably not useful
 ```
 
-#SubModel
+### SubModel
 ```{r}
 head(unique(to.clean$SubModel)) #935 distinct values
 
 #Probably Not Important
 ```
+### Color
 
+```{r}
+unique(to.clean$Color) #19 distinct Colors
+table(to.clean$Color)
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(mapping = aes(x = Color, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) +
+  theme(axis.text.x = element_text(angle = 90))
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(mapping = aes(x = Color, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) +
+  theme(axis.text.x = element_text(angle = 90))
+
+#Maybe Important, probably not
+# It seems that Not Available has a significantly higher probability of not working, though not many occur
+```
+
+
+### Transmission
+```{r}
+unique(to.clean$Transmission)
+table(to.clean$Transmission)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Transmission, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Transmission, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+# It really doesn't seem to be significant. 
+# but NULL and Automatic seem pretty even
+```
+
+
+### WheelTypeId/WheelType
+```{r}
+unique(to.clean$WheelType)
+table(to.clean$WheelType)
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = WheelType, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = WheelType, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = WheelTypeID, fill = as.factor(IsBadBuy))) + geom_bar(position = "fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = WheelTypeID, fill = as.factor(IsBadBuy))) + geom_bar(position = "stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+
+
+# Important
+# Almost 75% of NULL values are Lemons. Definitely a minority, but more significant than others.
+```
+
+
+### Nationality
+```{r}
+length(unique(to.clean$Nationality))
+table(to.clean$Nationality)
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Nationality, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Nationality, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+#Probably Not Important
+#No apparant difference. Definitely more American made than anyelse
+```
+
+### Size
+```{r}
+unique(to.clean$Size)
+table(to.clean$Size)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Size, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) + 
+  theme(axis.text.x = element_text(angle = 90))
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = Size, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec)+ 
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+### TopThreeAmericanName
+```{r}
+unique(to.clean$TopThreeAmericanName)
+table(to.clean$TopThreeAmericanName)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = TopThreeAmericanName, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = TopThreeAmericanName, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+# Probably Not Important
+```
+
+### AUCGUART
+```{r}
+unique(to.clean$AUCGUART)
+table(to.clean$AUCGUART)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = AUCGUART, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = AUCGUART, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+
+#
+```
+
+### PRIMEUNIT
+```{r}
+unique(to.clean$PRIMEUNIT)
+table(to.clean$PRIMEUNIT)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = PRIMEUNIT, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = PRIMEUNIT, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+```
+
+### BYRNO
+```{r}
+unique(to.clean$BYRNO)
+table(to.clean$BYRNO)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = BYRNO, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = BYRNO, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+```
+
+### VNZIP1
+```{r}
+unique(to.clean$VNZIP1)
+table(to.clean$VNZIP1)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = VNZIP1, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = VNZIP1, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+```
+
+### VNST
+```{r}
+unique(to.clean$VNST)
+table(to.clean$VNST)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = VNST, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = VNST, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+```
+
+### IsOnlineSale
+```{r}
+unique(to.clean$IsOnlineSale)
+table(to.clean$IsOnlineSale)
+
+
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = IsOnlineSale, fill = as.factor(IsBadBuy))) + geom_bar(position  ="fill") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+to.clean %>% filter(!is.na(IsBadBuy)) %>% 
+  ggplot(aes(x = IsOnlineSale, fill = as.factor(IsBadBuy))) + geom_bar(position  ="stack") + 
+  scale_fill_manual(name = "Outcomes", labels = c("Working", "Lemon"), values = col.vec) 
+```
